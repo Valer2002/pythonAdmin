@@ -1,0 +1,45 @@
+name: Check homework
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install -r requirements.txt
+
+      - name: Detect lessons to check
+        id: lessons
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            changed=$(git diff --name-only "origin/${{ github.base_ref }}...HEAD" \
+              | grep -oE '^lessons/[^/]+' | sort -u | xargs -r -n1 basename | tr '\n' ' ')
+          fi
+          echo "list=${changed:-}" >> "$GITHUB_OUTPUT"
+
+      - name: Run tests and build report
+        id: grade
+        run: python .github/scripts/grade.py ${{ steps.lessons.outputs.list }}
+
+      - name: Post feedback comment on PR
+        if: always() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr comment ${{ github.event.pull_request.number }} \
+            --body-file report.md --edit-last --create-if-none
